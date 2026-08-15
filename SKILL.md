@@ -1,5 +1,5 @@
 ---
-name: mobile-ui-anti-ai-refinement
+name: hg-ui-refinement
 description: 将既有手机软件、原生移动端或移动端网页的 UI 重构为任务优先、信息清晰、克制成熟的产品界面。用于审查、重新设计、实现或验收移动端 UI，尤其是用户认为功能可用但界面有“AI 味”、卡片堆砌、装饰过度、层级不清或文案营销化时。开始任何视觉决策前，必须读取 references/用户提供的去AI味UI设计原则原文.txt，并将其中全部准则作为本项目 UI 重构的最高设计依据。
 ---
 
