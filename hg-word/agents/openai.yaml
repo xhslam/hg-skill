@@ -1,0 +1,6 @@
+interface:
+  display_name: "hg-word"
+  short_description: "结合真实语境解释全部实词，并同步 Markdown 与 Auris 词库"
+  default_prompt: "Use $hg-word to process every content word and fixed expression in this text, with zero omissions, then sync 05-word and the Auris vocabulary JSON."
+policy:
+  allow_implicit_invocation: true

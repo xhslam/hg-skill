@@ -1,0 +1,6 @@
+interface:
+  display_name: "hg-gen-teaching-materials"
+  short_description: "hg-gen-teaching-materials: 按打地基、引申、横向对比生成中文教学讲义"
+  default_prompt: "Use $hg-gen-teaching-materials to turn a problem solution, derivation, or rough note into a layered Chinese teaching handout."
+policy:
+  allow_implicit_invocation: true

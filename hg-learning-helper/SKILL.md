@@ -1,0 +1,438 @@
+---
+name: hg-learning-helper
+description: hg-learning-helper 通用知识笔记模板 — 将任意学科/项目的知识体系整理为结构化笔记。LaTeX+Markdown双版本，支持章节笔记（7步结构）和期末复习（真题分类+留白练习）两种模式，适配考研/考公/专业课/科研/项目/竞赛。
+---
+
+# hg-learning-helper — 通用知识笔记模板
+
+将任意学科/项目的知识体系整理为结构化笔记。支持 LaTeX（编译为精美 PDF）和 Markdown（快速记录）双版本模板，适用于考研、考公、专业课学习、科研研究、项目总结、竞赛准备等场景。
+
+**核心理念：** 先理解知识体系 → 按模块组织 → 生成含概念+原理+方法+案例+实战+练习+复盘的完整笔记。
+
+## Non-Negotiables
+
+- **REQUIRED COMPANION SKILL:** 需要编译 PDF 时使用 `pdf` skill 进行编译输出。
+- 默认以 LaTeX 模板生成源文件并编译 PDF，除非用户明确要求只生成 Markdown。
+- 支持两种模板模式，用户在 Intake 阶段确认选择：
+  - **章节笔记模式**（7 步结构）：每节含概念引入→核心公式→方法速通→典型示例→真题实战→巩固练习→总结复盘
+  - **期末复习模式**（真题分类）：按考试题型组织→考法归纳→真题年份标签→方法速通→练习留白→答案统一放末尾
+- 期末复习模式下，练习必须**留空**（不给出答案），答案统一在文末"习题答案与提示"一节给出。
+- 默认输出路径：在当前工作目录下创建 `hg-learning-helper-Output-<project-name>/` 文件夹，所有文件放入其中。
+- 默认编译方式：`xelatex` × 2 遍。
+- 知识点旁如能用图片更直观、更易理解的，必须加入图片（LaTeX 用 tikz 绘制，Markdown 用链接/嵌入）。图片应是简洁的概念性图示，而非装饰性插图。
+- **日期格式规则：** 所有资料（考研/考公/竞赛/期末/专业课）的最终修订日期必须使用中文完整格式 `YYYY年M月D日`（如 `2026年5月14日`），不可省略年、月、日中的任何部分，不可使用斜杠格式。除非用户明确要求修改，否则必须遵守此格式。
+- 当此 skill 被触发时，仅输出文字聊天不算完成，必须生成文件并确认写入磁盘。
+
+## Required Outcome
+
+默认成功结果：
+
+- LaTeX 模式：保存 `.tex` 源文件 + 编译后的 `.pdf`
+- Markdown 模式：保存 `.md` 文件
+- 所有生成文件放入 `hg-learning-helper-Output-<project-name>/` 文件夹
+- 最终回复报告生成的文件路径
+
+以下情况**不算**完成（除非用户明确要求）：
+
+- 仅文字聊天回复
+- 草稿未写入磁盘
+- 声称完成但未确认文件实际存在
+
+## When to Use
+
+当用户需要以下场景时使用此 skill：
+
+- "帮我整理 **XX** 的笔记"
+- "做一份 **XX** 的复习资料"
+- "用 hg-learning-helper 模板"
+- "整理成 7 步结构笔记"
+- 考研 / 考公 / 专业课的知识体系整理
+- 科研笔记 / 项目总结 / 竞赛准备
+
+Common trigger phrases：
+- 整理笔记
+- 复习资料
+- 知识总结
+- 考前冲刺
+- 7 步笔记
+- 期末速成
+- 期末复习
+- 真题整理
+- CNAO
+- 天文奥赛
+- 竞赛
+- hg-learning-helper
+
+Do not use this skill for：
+
+- 单纯总结课件 slides（使用 `summarize-slides`）
+- 只编译已有 `.tex` 到 PDF（使用 `pdf`）
+- 纯 PDF 操作（合并/拆分/加密/OCR 等，使用 `pdf`）
+- 不需要生成文件，只问问题
+
+## Skill Boundary
+
+- Allowed skills for this workflow：`hg-learning-helper` and `pdf` only.
+- Forbidden：all other skills.
+
+## Workflow Model
+
+- `controller`：负责确认需求、全局理解知识体系、分块规划、合并、生成模板文件、编译、最终检查
+- `segment-writer`：每个知识模块的独立写手
+- `verifier`：检查覆盖完整性、结构是否完整、公式是否正确、内容是否准确
+
+## Dispatch Rules
+
+- 按知识体系的自然模块（章节笔记模式按教材章节，期末复习模式按考试题型）分块
+- 每块用对应的模板结构组织
+- 各块之间独立时可并行派发 `segment-writer`
+- 紧密关联的推导链不应拆分
+- `verifier` 必须在合并后单独执行，不可复用 `segment-writer`
+
+## Execution Flow
+
+```dot
+digraph hg_learning_helper_flow {
+    "Intake" [shape=box];
+    "Understand knowledge structure" [shape=box];
+    "Segment by chapters/topics" [shape=box];
+    "Dispatch segment writers" [shape=box];
+    "Collect per-segment notes" [shape=box];
+    "Merge into structured draft" [shape=box];
+    "Dispatch fresh verifier" [shape=box];
+    "Verifier approved?" [shape=diamond];
+    "Write template files" [shape=box];
+    "Build PDF (LaTeX mode)" [shape=box];
+    "Final artifact check" [shape=box];
+    "Report result" [shape=doublecircle];
+
+    "Intake" -> "Understand knowledge structure";
+    "Understand knowledge structure" -> "Segment by chapters/topics";
+    "Segment by chapters/topics" -> "Dispatch segment writers";
+    "Dispatch segment writers" -> "Collect per-segment notes";
+    "Collect per-segment notes" -> "Merge into structured draft";
+    "Merge into structured draft" -> "Dispatch fresh verifier";
+    "Dispatch fresh verifier" -> "Verifier approved?";
+    "Verifier approved?" -> "Merge into structured draft" [label="no, revise and re-verify"];
+    "Verifier approved?" -> "Write template files" [label="yes"];
+    "Write template files" -> "Build PDF (LaTeX mode)";
+    "Build PDF (LaTeX mode)" -> "Final artifact check";
+    "Final artifact check" -> "Report result";
+}
+```
+
+## Step 1. Intake
+
+- 确认用户要整理什么学科/项目
+- 确认用 LaTeX（编译 PDF）还是 Markdown
+- 确认输出路径（默认当前工作目录下的 `hg-learning-helper-Output-<project-name>/`）
+- 确认覆盖范围（全部内容还是指定章节）
+- **确认模板模式：**
+  - **章节笔记模式** — 系统学习新知识，按教材章节组织，每节 7 步结构
+  - **期末复习模式** — 备考冲刺，按考试题型/知识点组织，含真题年份标签、练习留白、答案放末尾
+- 记录用户的风格要求
+
+Default style：
+- language：Chinese
+- layout：single-column
+- purpose：知识整理 / 考试复习
+- tone：清晰、结构化、不啰嗦
+- output：`.tex` + `.pdf`（LaTeX 模式）或 `.md`（Markdown 模式），放入 `hg-learning-helper-Output-<project-name>/`
+
+## Step 2. Check Build Environment
+
+- LaTeX 模式：确认 `xelatex` 可用
+- 如果 `xelatex` 缺失但有 LaTeX 需求，报告环境问题
+
+## Step 3. Understand Knowledge Structure
+
+- 了解知识体系的宏观结构
+- 章节笔记模式：按教材章节划分
+- 期末复习模式：按考试题型/知识点划分（行列式、矩阵、方程组、特征值、二次型……）
+- 识别公式密集区、概念密集区
+- 构建分块映射
+
+## Step 4. Segment by Chapters/Topics
+
+- 按教材章节或知识模块的自然边界分块
+- 章节笔记模式：每块用 7 步结构
+- 期末复习模式：每块按题型组织（考法→真题→方法→练习）
+- 紧密关联的内容不应拆分
+
+## Step 5. Segment Writer Phase
+
+可用 subagent 则并行派发 `segment-writer`，否则 controller 顺序执行。
+
+### 章节笔记模式
+每个 `segment-writer` 返回：
+- `segment id`、`topic name`
+- `概念引入` — 核心概念及其直觉理解
+- `核心公式` — 公式及推导
+- `方法速通` — 解题技巧
+- `典型示例` — 经典例题
+- `真题/实战` — 真实题目
+- `巩固练习` — 带解答
+- `总结复盘` — 易错点
+
+### 期末复习模式
+每个 `segment-writer` 返回：
+- `segment id`、`topic name`、考法描述
+- `真题列表`（每道题标注年份/来源）
+- `方法速通` — 解题技巧与公式（精简）
+- `真题解答` — 带步骤注释的完整解答
+- `练习题目` — 只出题，**不**给出答案
+- `易错提醒`
+
+Segment writers 不允许：
+- 编写最终文档
+- 决定最终排版
+
+## Step 6. Merge into Structured Draft
+
+Controller 合并所有 segment 笔记为连贯的结构化草稿。
+
+### 章节笔记模式结构（每块按顺序）：
+1. 概念引入 — 建立直觉
+2. 核心公式 — 公式框 + 推导
+3. 方法速通 — 解题技巧浓缩（不可省略）
+4. 典型示例 — 经典例题
+5. 真题/实战 — 标注年份/来源
+6. 巩固练习 — 带解答
+7. 总结复盘 — 易错点 + 思维导图
+
+### 期末复习模式完整文档结构：
+```
+考试概览（试卷结构表 + 时间分配建议）
+内容导航（表格）
+├─ 一、题型/知识点1
+│   考法概述 → 真题列表(按年份)
+│   方法速通 → 真题解答(带步骤注释)
+│   练习留白(标注"答案见末节")
+├─ 二、题型/知识点2 ...
+│   ...
+├─ 七、题型/知识点N
+└─ 附录
+     考点对比速查表 → 习题答案与提示 → 考场最后叮嘱
+```
+
+## Style Rules
+
+- 中文为主
+- 关键术语如需保留英文加括号标注
+- 短句、要点式
+- 使用：`定义`、`公式`、`方法`、`技巧`、`典型例题`、`易错点`
+- 避免长篇大论
+- 避免照搬教材原句
+- **图片优先：** 知识结构图、对比图、流程图、几何示意图等能辅助理解的，用 tikz（LaTeX）或插入图片（Markdown）实现。每章至少评估一次是否需要配图。
+
+### 日期格式规则：
+- 所有资料的最后修订日期、版本日期必须使用中文完整格式 `YYYY年M月D日`（例：`2026年5月14日`）。
+- 禁止省略年、月、日中的任何部分（如 `2026年5月` 或 `2026/5/14` 均不可接受），除非用户明确要求。
+- 此规则适用于：考研资料、考公资料、竞赛资料、期末复习、专业课笔记等所有标注日期的场景。
+- 日期建议放在封面作者署名下方，使用蓝色字体突出显示，格式如：`\color{blue} 最后修订：2026年5月14日`。
+- 封面作者署名行（如"一叶知秋"）不应再重复年份，仅保留姓名即可。
+
+### 期末复习模式特有规则：
+- 每个题型节以 `\knowtitle{考法：...}` 开头，概括该知识点在考试中的出题方式
+- 真题前标注 `\yearlabel{年份}`，如 `\yearlabel{17-18-1}`、`\yearlabel{24}`
+- 竞赛类资料（如 CNAO）使用 **4位完整年份** 标记：`\yearlabel{2024}`，因竞赛年份跨度大且无学期概念
+- 真题如需标注考试类型和题号，使用可选参数格式：`\yearlabel[决赛第3题]{2024}`，显示为 `[2024年决赛第3题]`。命令定义：`\newcommand{\yearlabel}[2][]{\textcolor{supercolor}{\small [#2年#1]}}`（#1可选题型题号，缺省留空时仅显示年份）
+- pre-selection/preliminary 标注示例：`\yearlabel[预赛第10题]{2023}`、`\yearlabel[选拔赛第5题]{2022}`
+- 方法速通用 `\noindent\textcolor{emphcolor}{\textbf{方法速通：}}` 起头，**不用** `\knowtitle` 框
+- 真题解答用 `\begin{exampenv}{年份：标题}` 包裹，每步 `\quad\Big(\text{注释}\Big)` 解释为什么这么做
+- 练习用 `\begin{pracenv}{编号：标题}` 包裹，**不留解答**（留 `\vspace*{3.5em}` 空白），末尾加 `\seeans{编号}`
+- 所有练习答案统一放在文末 `\section{习题答案与提示}` 中，每条用 `\answer{编号}` 开头
+
+#### 排版要求（期末复习模式）：
+- 概念介绍、说明文字与表格之间 **不应有大间距**：用 `\smallskip` 代替 `\medskip` 或 `\bigskip`
+- 表格类内容（分类统计表、速览表、对照表等）前后使用 `\smallskip` 即可，无需 `\medskip`/`\bigskip`
+- 不同类型的节（题型节）之间使用 `\medskip` 合理分隔
+- 封面作者署名行（如"一叶知秋"）不重复年份，年份仅出现在最终修订日期中
+- 最终修订日期建议使用蓝字 `\color{blue}`，文末祝福区可用灰色保留一致格式
+
+## Verifier Phase
+
+所有 segment 合并后，执行独立的 verifier pass。
+
+Verifier 检查：
+- 所有知识模块是否覆盖
+- 章节笔记模式：每块是否包含完整 7 步结构（方法速通不可缺省）
+- 期末复习模式：每块是否有考法概述、真题是否标年份、练习是否留空白、答案是否在末尾
+- 公式是否准确
+- 内容是否有明显错误
+- 排版是否清晰
+
+Verifier 返回：
+- `verdict`：`APPROVED` / `APPROVED_WITH_NOTES` / `REJECTED`
+- `coverage findings`
+- `accuracy findings`
+- `missing or weak areas`
+
+APPROVED 后才进入文件生成阶段。
+
+## Template Generation
+
+### 章节笔记模式 LaTeX 模板
+
+**导言区：**
+```latex
+% !TEX program = xelatex
+\documentclass[10pt,a4paper]{article}
+\usepackage{xeCJK}
+\setCJKmainfont{SimSun}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage[top=1.4cm,bottom=1.2cm,left=1.0cm,right=1.0cm,includehead]{geometry}
+\usepackage{xcolor,enumitem,array,booktabs,multirow,fancyhdr,titlesec,hyperref,environ}
+```
+
+**颜色系统：** 深蓝主标题、墨绿节标题、橙红强调、紫红真题、蓝色提示、绿色练习、棕色习题、浅蓝灰标题背景。
+
+**自定义命令：**
+```latex
+\newcommand{\key}[1]{\textcolor{emphcolor}{\textbf{#1}}}
+\newcommand{\super}[1]{\textcolor{supercolor}{\textbf{#1}}}
+\newcommand{\formula}[1]{\vspace{0.3em}\begin{center}\fcolorbox{titlecolor}{white}{\parbox{0.92\textwidth}{\centering\color{titlecolor}\small #1}}\end{center}\vspace{0.2em}}
+\newcommand{\knowtitle}[1]{\vspace{0.4em}\noindent\colorbox{sectionbg}{\parbox{\dimexpr\textwidth-2\fboxsep\relax}{\small\bfseries\color{titlecolor}#1}}\vspace{0.2em}}
+```
+
+**文档结构：** 封面 → 专业说明 → 使用说明 → 目录 → 正文（每节 7 步）→ 题型总结 → 公式速查 → 习题答案 → 结尾
+
+### 期末复习模式 LaTeX 模板
+
+**导言区：** 与章节笔记模式相同，额外添加：
+```latex
+\usepackage{cancel}
+\usepackage{bm}
+```
+
+**自定义命令：** 基础命令同章节笔记模式，额外添加：
+```latex
+\newcommand{\yearlabel}[2][]{\textcolor{supercolor}{\small [#2年#1]}}
+\newcommand{\seeans}[1]{\textcolor{gray}{\small（答案见末节）}}
+\newcommand{\answer}[1]{\vspace{0.5em}\noindent\textcolor{examplecolor}{\textbf{答案 #1：}}\normalsize}
+```
+
+**文档结构：**
+```
+标题区（科目名 + 副标题 + 试卷结构概览）
+内容导航（两列表格，列出全部节标题）
+├─ \section{一、题型1}
+│   \knowtitle{考法：...} — 出题方式 + 常见套路
+│   真题列表（\yearlabel{年份} 标注）
+│   方法速通（\textcolor{emphcolor}{\textbf{方法速通：}} 起头）
+│   \begin{exampenv}{年份：标题} — 真题解答，每步 \quad\Big(\text{注释}\Big)
+│   \begin{pracenv}{编号：标题} — 练习留白 + \seeans{编号}
+├─ \section{二、题型2} ...
+│   ...
+├─ \section{附录：考点对比速查表}
+│   知识点 vs 年份 vs 题型 对照表格
+├─ \section{习题答案与提示}
+│   \answer{1} ... \answer{2} ...（全部练习答案集中在此）
+└─ 考场最后叮嘱（10 条左右的应试提醒）
+```
+
+**真题解答标注规范：**
+```latex
+\begin{exampenv}{24年：题目名}
+\[\begin{aligned}
+&第一步计算
+   \quad\Big(\text{解释为什么这么做}\Big)\\
+&第二步计算
+   \quad\Big(\text{关键技巧说明}\Big)
+\end{aligned}\]\end{exampenv}
+```
+
+### Markdown 模板
+
+```markdown
+# 科目名称
+
+## 第X章 章名
+
+### 1. 概念引入
+...
+### 2. 核心公式
+...
+### 3. 方法速通
+...
+### 4. 典型示例
+...
+### 5. 真题/实战
+...
+### 6. 巩固练习
+...
+### 7. 总结复盘
+...
+```
+
+## Build and Final Artifact Check
+
+- LaTeX 模式：`xelatex` × 2 遍编译
+- 确认 `.tex` / `.md` 已写入磁盘
+- 确认 `.pdf` 编译成功（exit status = 0）
+- 检查最终 PDF 是否有：乱码、公式错误、排版问题、中文渲染失败
+- 所有文件必须在 `hg-learning-helper-Output-<project-name>/` 内
+
+## Final Response Policy
+
+- 报告生成文件的完整路径
+- 简要概括生成的内容范围
+- 文件不存在则不能声称完成
+
+## Output Naming
+
+- 输出文件夹：`hg-learning-helper-Output-<project-name>/`
+- LaTeX 源文件：`<project-name>-notes.tex`
+- 编译 PDF：`<project-name>-notes.pdf`
+- Markdown 文件：`<project-name>-notes.md`
+- 中间辅助文件：同样放在输出文件夹内
+
+## Common Failure Modes
+
+- 不按模板结构组织内容
+- 章节笔记模式缺省"方法速通"步骤
+- 期末复习模式练习给出了答案（应留空白）
+- 期末复习模式答案没有收在末尾（应集中一处）
+- 期末复习模式真题没标年份标签
+- 章节内容混杂不清晰
+- 回复聊天文字代替生成文件
+- 文件散落在工作目录而非输出文件夹
+- LaTeX 编译失败但声称完成
+- 公式语法错误导致编译中断
+- 只写 `.tex` 不编译 PDF（LaTeX 模式下）
+
+## Red Flags
+
+- 没有按章节/模块分块
+- 缺少方法速通
+- 练习未留空白或答案未统一放末尾（期末复习模式）
+- 真题未标记年份（期末复习模式）
+- 输出文件不在指定文件夹
+- 声称完成但文件未确认
+- 编译报错未处理
+
+All of these mean：stop, fix, and re-run verification before finalizing.
+
+## 竞赛资料适用场景
+
+hg-learning-helper 的**期末复习模式**完全适配竞赛类资料（CNAO 天文奥赛、数学竞赛、物理竞赛等），使用期末复习模式的全部规则：
+
+- 按知识模块/考纲章节分块，每块用 `\knowtitle{考法：...}` 概括
+- 真题按 4 位完整年份标注 `\yearlabel{2024}`
+- 方法速通独立成段
+- 练习留白，答案集中末尾
+
+### 竞赛资料 vs 考研/期末资料的关键差异
+
+| 维度 | 考研/期末 | 竞赛 |
+|------|-----------|------|
+| 年份标注 | `\yearlabel{24}` 或 `\yearlabel{17-18-1}` | `\yearlabel{2024}` 4位完整年份 |
+| 年份跨度 | 3-5 年 | 10+ 年（CNAO 案例覆盖 2013-2024） |
+| 知识体系 | 按教材章节 | 按竞赛考纲/官方知识点模块 |
+| 真题数量 | 每题型 5-15 道 | 每模块可达 30+ 道 |
+
+### 排版特殊要求
+
+- 概念介绍和表格之间使用 `\smallskip` 而非 `\medskip`/`\bigskip`，保持紧凑
+- 封面作者行不重复年份，仅保留姓名
+- 最终修订日期用中文完整格式 + 蓝色字体

@@ -1,0 +1,4 @@
+interface:
+  display_name: "HG 物理试卷复盘"
+  short_description: "把物理试卷整理成四张诊断、模型、解法与错题迁移复习图"
+  default_prompt: "Use $hg-physics-review to turn my physics exam paper into four focused review images."
