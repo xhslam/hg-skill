@@ -12,8 +12,30 @@ set -uo pipefail
 
 AGY_GRACE="${AGY_GRACE:-45}"   # --print-timeout 之外的硬性宽限秒数
 MODEL=""; EFFORT=""; SCHEMA=""; TIMEOUT=""; DIR=""; CONV=""; OUT=""
-ALLOW=0; RAW=0
+ALLOW=0; RAW=0; CONTRACT="auto"
 PROMPT_PARTS=()
+
+# agy 默认只允许读类工具和一组只读命令；写文件、任意命令需要 permissions.allow 规则
+CONTRACT_TEXT='纯文本任务：只处理下面内联的内容并直接给出结果。不要执行命令、读写文件或联网；若必须借助工具，说明无法完成，不要尝试。\n\n任务：\n'
+CONTRACT_PROJECT='项目开发任务：可以读取并修改指定目录内的文件、运行本地检查。不要改动无关文件或覆盖他人已有改动；删除数据、发布/外发、付费、安装依赖或扩大权限前先停下说明。完成后报告改动文件、运行的检查与结果。\n\n任务：\n'
+
+# 权限被拒时给出可执行的下一步，而不是只报一句“无法使用”
+report_denial() {
+  local blob="$1" tool rule settings
+  tool="$(printf '%s' "$blob" | sed -n 's/.*a tool required the "\([a-z_]*\)" permission.*/\1/p' | head -1)"
+  rule="$(printf '%s' "$blob" | sed -n 's/.*e\.g\. \([A-Za-z_][A-Za-z_0-9]*([^)]*)\).*/\1/p' | head -1)"
+  settings="${HOME}/.gemini/antigravity-cli/settings.json"
+  {
+    printf '%s\n' "[agy] 权限被拒：${tool:-未知工具}（headless 无法弹窗授权，已自动拒绝）"
+    printf '%s\n' "  agy 建议的规则：${rule:-${tool:-<tool>}(<target>)}"
+    printf '%s\n' "  配置文件：${settings} 的 permissions.allow"
+    printf '%s\n' "  三条出路："
+    printf '%s\n' "    1. 加最小 allow 规则（推荐，配一次长期生效）"
+    printf '%s\n' "    2. 本次显式放行：--allow-tools（自动批准全部工具，须用户明确确认后使用）"
+    printf '%s\n' "    3. 不需要工具：改成纯文本任务，或用 --contract text 强制"
+    printf '%s\n' "  注意：--sandbox 与 --mode auto 不会提升工具权限。"
+  } >&2
+}
 
 usage() {
   cat <<'EOF'
@@ -30,6 +52,7 @@ usage() {
   -c, --conversation <id>  续接指定会话
   -o, --out <文件>         保存完整 JSON 信封（含 usage、conversation_id）
       --allow-tools        传 --dangerously-skip-permissions（自动批准全部工具权限）
+      --contract <mode>    auto（默认）| text（强制纯文本契约）| project | none
       --raw                原样打印整个 JSON 信封，而不是只打印正文
   -h, --help               显示帮助
 
@@ -74,6 +97,7 @@ while [[ $# -gt 0 ]]; do
     -c|--conversation) CONV="${2:?缺少会话 ID}"; shift 2 ;;
     -o|--out)          OUT="${2:?缺少输出路径}"; shift 2 ;;
     --allow-tools)     ALLOW=1; shift ;;
+    --contract)        CONTRACT="${2:?缺少 contract 值}"; shift 2 ;;
     --raw)             RAW=1; shift ;;
     -h|--help)         usage; exit 0 ;;
     --)                shift; while [[ $# -gt 0 ]]; do PROMPT_PARTS+=("$1"); shift; done ;;
@@ -110,6 +134,19 @@ if [[ -z "${PROMPT//[[:space:]]/}" ]]; then
   echo "错误：提示词为空。" >&2
   exit 2
 fi
+
+# 默认注入任务契约：纯文本模式明确不要用工具，项目模式明确可改范围。
+# 避免“模型自己想调工具 → headless 拒绝 → 空正文”的白白失败。
+case "$CONTRACT" in
+  auto)    if [[ -n "$DIR" ]]; then CONTRACT=project; else CONTRACT=text; fi ;;
+  text|project|none) ;;
+  *) echo "错误：--contract 只能是 auto|text|project|none" >&2; exit 2 ;;
+esac
+case "$CONTRACT" in
+  text)    PROMPT="$CONTRACT_TEXT$PROMPT" ;;
+  project) PROMPT="$CONTRACT_PROJECT$PROMPT" ;;
+  none)    ;;
+esac
 
 if [[ -n "$DIR" ]]; then
   cd "$DIR" || { echo "错误：无法进入目录 $DIR" >&2; exit 2; }
@@ -245,8 +282,8 @@ if [[ $PARSED -eq 0 ]]; then
   printf '%s\n' "$DATA"
   [[ -n "$ERR" ]] && printf '%s\n' "$ERR" >&2
   case "$DATA$ERR" in
-    *"cannot prompt for"*)
-      echo "[agy] 该任务需要工具权限，headless 模式无法弹窗授权。改用 --allow-tools，或缩小任务范围。" >&2
+    *"cannot prompt for"*|*"auto-denied"*)
+      report_denial "$DATA$ERR"
       exit 3 ;;
   esac
   # 无解析器时用粗粒度匹配还原成功判定，避免把成功调用误报为失败
@@ -269,8 +306,8 @@ if [[ -z "${BODY//[[:space:]]/}" ]]; then
   # 空正文有三种真实成因，必须区分，否则会把权限问题误报成模型不听话
   printf '%s' "$ERR" >&2; [[ -n "$ERR" ]] && printf '\n' >&2
   case "$DATA$ERR" in
-    *"cannot prompt for"*)
-      echo "[agy] 该任务需要工具权限，headless 模式无法弹窗授权。改用 --allow-tools，或缩小任务范围。" >&2
+    *"cannot prompt for"*|*"auto-denied"*)
+      report_denial "$DATA$ERR"
       exit 3 ;;
     *"print timeout"*)
       echo "[agy] print 超时，未产出正文。加大 -t 或拆分任务。" >&2

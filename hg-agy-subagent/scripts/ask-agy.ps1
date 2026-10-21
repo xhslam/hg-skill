@@ -32,6 +32,7 @@ param(
   [Alias('o')][string]$Out,
   [string]$AgyBin,
   [int]$Grace = 45,
+  [ValidateSet('auto', 'text', 'project', 'none')][string]$Contract = 'auto',
   [switch]$AllowTools,
   [switch]$Raw,
   [switch]$Help
@@ -58,6 +59,7 @@ function Show-Usage {
   -Out, -o <文件>          保存完整 JSON 信封（含 usage、conversation_id）
   -AgyBin <路径>           显式指定 agy 可执行文件（也可用 AGY_BIN 环境变量）
   -Grace <秒>              硬看门狗宽限秒数（默认 45）
+  -Contract <mode>         auto（默认）| text | project | none，控制默认注入的任务契约
   -AllowTools              传 --dangerously-skip-permissions（自动批准全部工具权限）
   -Raw                     原样打印整个 JSON 信封，而不是只打印正文
   -Help                    显示帮助
@@ -139,6 +141,37 @@ if ([string]::IsNullOrWhiteSpace($Prompt)) {
   [Console]::Error.WriteLine('错误：需要提示词（位置参数，或通过管道传入）。')
   Show-Usage
   exit 2
+}
+
+# agy 默认只允许读类工具和一组只读命令；写文件、任意命令需要 permissions.allow 规则
+$ContractText = "纯文本任务：只处理下面内联的内容并直接给出结果。不要执行命令、读写文件或联网；若必须借助工具，说明无法完成，不要尝试。`n`n任务：`n"
+$ContractProject = "项目开发任务：可以读取并修改指定目录内的文件、运行本地检查。不要改动无关文件或覆盖他人已有改动；删除数据、发布/外发、付费、安装依赖或扩大权限前先停下说明。完成后报告改动文件、运行的检查与结果。`n`n任务：`n"
+
+# 默认注入任务契约：纯文本模式明确不要用工具，项目模式明确可改范围。
+# 避免“模型自己想调工具 → headless 拒绝 → 空正文”的白白失败。
+if ($Contract -eq 'auto') { $Contract = if ($Dir) { 'project' } else { 'text' } }
+switch ($Contract) {
+  'text' { $Prompt = $ContractText + $Prompt }
+  'project' { $Prompt = $ContractProject + $Prompt }
+  'none' { }
+}
+
+function Show-Denial {
+  param([string]$Blob)
+  $tool = ''
+  $rule = ''
+  if ($Blob -match 'a tool required the "([a-z_]+)" permission') { $tool = $Matches[1] }
+  if ($Blob -match 'e\.g\. ([A-Za-z_][A-Za-z_0-9]*\([^)]*\))') { $rule = $Matches[1] }
+  if (-not $rule) { $rule = if ($tool) { "$tool(<target>)" } else { '<tool>(<target>)' } }
+  $settings = Join-Path $env:USERPROFILE '.gemini\antigravity-cli\settings.json'
+  [Console]::Error.WriteLine("[agy] 权限被拒：$(if ($tool) { $tool } else { '未知工具' })（headless 无法弹窗授权，已自动拒绝）")
+  [Console]::Error.WriteLine("  agy 建议的规则：$rule")
+  [Console]::Error.WriteLine("  配置文件：$settings 的 permissions.allow")
+  [Console]::Error.WriteLine('  三条出路：')
+  [Console]::Error.WriteLine('    1. 加最小 allow 规则（推荐，配一次长期生效）')
+  [Console]::Error.WriteLine('    2. 本次显式放行：-AllowTools（自动批准全部工具，须用户明确确认后使用）')
+  [Console]::Error.WriteLine('    3. 不需要工具：改成纯文本任务，或用 -Contract text 强制')
+  [Console]::Error.WriteLine('  注意：--sandbox 与 --mode auto 不会提升工具权限。')
 }
 
 $agy = Resolve-Agy -Explicit $AgyBin
@@ -245,8 +278,8 @@ try {
   if (-not $hasEnvelope) {
     Write-Output $data
     if ($err) { [Console]::Error.WriteLine($err) }
-    if (($data + $err) -match 'cannot prompt for') {
-      [Console]::Error.WriteLine('[agy] 该任务需要工具权限，headless 模式无法弹窗授权。改用 -AllowTools，或缩小任务范围。')
+    if (($data + $err) -match 'cannot prompt for|auto-denied') {
+      Show-Denial ($data + "`n" + $err)
       exit 3
     }
     exit 1
@@ -276,8 +309,8 @@ try {
     # 空正文有三种真实成因，必须区分，否则会把权限问题误报成模型不听话
     if ($err) { [Console]::Error.WriteLine($err) }
     $combined = "$data`n$err"
-    if ($combined -match 'cannot prompt for') {
-      [Console]::Error.WriteLine('[agy] 该任务需要工具权限，headless 模式无法弹窗授权。改用 -AllowTools，或缩小任务范围。')
+    if ($combined -match 'cannot prompt for|auto-denied') {
+      Show-Denial $combined
       exit 3
     }
     if ($combined -match 'print timeout') {

@@ -15,7 +15,6 @@
 - 目前核实了纯文本正常路径与不存在文件的读取失败；没有据此证明所有工具都会上报完整成功结果或权限事件。
 
 ## 平台与可移植性（2026-10-22）
-
 Skill 会被下载到 macOS 与 Windows，因此包装脚本不再写死 `~/.local/bin/agy`，也不再假设对方有 bash / python3 / perl。
 
 已在本机（macOS 26, darwin25, agy 1.4.4, bash 3.2.57, jq / python3 / perl 均存在）验证 `scripts/ask-agy.sh`：
@@ -41,6 +40,18 @@ Windows 侧未在本机执行过：`scripts/ask-agy.ps1` 只做了静态审阅�
 6. 若 `agy` 在 PATH 上是 `agy.cmd` 而非 `.exe`，确认脚本包 `cmd.exe /c` 后仍能拿到 stdout 与退出码。
 
 Windows 已知风险点（脚本已按此实现，但尚未在真机确认）：PowerShell 5.1 管道默认非 UTF-8、`Start-Process -ArgumentList` 的引号拆分、`.cmd` 垫片不能直接被 CreateProcess 启动、ExecutionPolicy 拦脚本。
+
+## 权限行为（2026-10-22 实测，agy 1.4.4）
+
+headless 下 agy 不会弹窗，工具请求按本地 settings 直接判定：
+
+- 配置文件：`~/.gemini/antigravity-cli/settings.json`（从二进制字符串 `.gemini/antigravity-cli/settings.json` 确认）。
+- 现有 `permissions.allow` 示例：`command(echo)`、`command(which)`、`command(file)`、`command(cat)`。
+- 内置安全白名单（二进制中的 `agy_tool_safety` 监控配置）包含读类工具（`view_file`/`read_file`/`list_dir`/`grep_search` 等）和只读命令（`ls`、`pwd`、`echo`、`cat`、`jq`、`ps`、`git log/diff/status` 等）。
+- 实测被拒：`write_file`（写文件）、`command`（如 `whoami`）。
+- 实测 `--sandbox` 与 `--mode auto` 均不提升权限，仍返回同样拒绝文本。
+- `--dangerously-skip-permissions` 实测可使 `write_file` 成功写入。
+- 拒绝时 CLI 退出码仍为 0，仅靠正文为空与 stderr 文本发现；包装脚本据此返回 `3`。
 
 ## 可用模型
 
