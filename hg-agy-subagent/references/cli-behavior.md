@@ -1,80 +1,144 @@
-# AGY CLI 行为与验证范围
+# agy CLI 实测行为记录
 
-## 2026-10-19：1.0.2 恢复项目开发定位（当前版本）
+环境：macOS，`/Users/apple/.local/bin/agy`，版本 1.4.2，实测日期 2026-10-18。
 
-用户明确其用途是项目开发子 Agent，1.0.1 的仅文本限制不符合目标。本版恢复 `-d/--dir`、`-c/--conversation`，支持 `--mode accept-edits|auto|plan`，项目默认 accept-edits、600 秒；无 -d 则保留原文本模式。
+## 1.4.4 补充验证（2026-10-21）
 
-项目契约允许读写代码、执行本地测试和构建。项目 cwd 不清理、不自动回滚；同项目并行优先 worktree 或不重叠范围，不强制所有任务使用临时目录。
+以下结论修正后文 1.4.2 历史记录的概括，模型列表仍需运行时查询。
 
-默认使用 AGY 原生权限，不传跳过权限或强制 sandbox。可显式选择 `--sandbox`；`--dangerously-skip-permissions` 仅作为事先明确确认后的选项，运行时打印全部工具放行警告，不恢复含糊的 `--allow-tools` 别名。包装器不能拦截每个工具请求，也不自动把 AGY 授权桥接到 Gamma。
+- `--output-format stream-json` 实际 envelope 为 `{event:"init", conversation_id, init:{cwd,tools,permission_mode}}`、`{event:"step_update",step_update:{step_index,state,step_type,...}}`、`{event:"result",result:{status,response,...}}`，不是 flat `type` 结构。
+- `agent_response` 文本位于 `step_update.text_delta`；工具事件为 `step_type:"tool"`，含 `tool_name`、`tool_info.parameters`，失败可能含 `tool_info.error`。
+- 未加 `--dangerously-skip-permissions`，在 `request-review` 模式下读取一个不存在文件仍发生了工具尝试，返回 `file does not exist`。因此 headless 并非默认禁用全部工具，权限依赖 agy 自有配置和工具类型。
+- `--log-file`、`--disable-slash-commands`、`--sandbox` 在当前帮助中存在；`--sandbox` 只标注终端限制，未核实完整覆盖。
+- 2026-10-22 复核：带 `--json-schema` 的纯文本任务仍出现过模型调用 `command` 被 auto-deny（拿回空正文、`status` 仍为 `SUCCESS`），所以“纯文本任务也要写不要执行任何命令”这条约束在当前版本依然必要。
+- Gamma 原生面板仅对 `AgyStart` 发起的受管任务生效，旧脚本/Bash 调用不会自动创建原生 Tab。源码已实现不等于当前运行 App 已安装该版本。
+- 目前核实了纯文本正常路径与不存在文件的读取失败；没有据此证明所有工具都会上报完整成功结果或权限事件。
 
-已再次读取本机 agy 1.4.2 帮助以核对参数；本轮没有实际委派模型或修改 AGY 权限配置。新增模拟 CLI 覆盖：指定路径、代码文件写入与真实本地 Python 校验、模式/会话透传、默认无 bypass、显式 bypass 警告、项目保留、失败后改动保留及模式参数边界。运行记录新增 cwd、task_kind、conversation_id、permission_mode、execution_mode 与 sandbox。
+## 平台与可移植性（2026-10-22）
 
-以下 1.0.1 的“不支持项目/会话”说明仅记录该历史版本，不适用于当前版本。Windows 测试已运行；macOS/Linux 分支未实机验证。模拟开发成功不代表真实 CLI headless 工具权限已配置好，需在用户授权的后续试跑中验证。
+Skill 会被下载到 macOS 与 Windows，因此包装脚本不再写死 `~/.local/bin/agy`，也不再假设对方有 bash / python3 / perl。
 
-## 2026-10-19：1.0.1 封装加固
+已在本机（macOS 26, darwin25, agy 1.4.4, bash 3.2.57, jq / python3 / perl 均存在）验证 `scripts/ask-agy.sh`：
 
-本轮环境为 Windows，确认 PATH 中存在 `agy.exe`，`agy --version` 为 1.4.2。已读取本机 `agy --help`，支持 JSON、Schema、stdin 相关选项、`--sandbox`、`--disable-slash-commands`、`--print-timeout` 和会话参数。本轮没有调用真实模型，没有验证实际工具隔离效果。
+| 场景 | 结果 |
+| --- | --- |
+| 位置参数 + 中文提示词 | 正文正常，`status=SUCCESS`，退出 0 |
+| stdin 传提示词 | 正常，退出 0 |
+| `jq` 被失效遮蔽 | 自动降级到 python3 解析，结果一致 |
+| `jq` 与 `python` 全部缺失 | 原样输出信封，靠 `grep` 粗判 `status` 得出退出 0 |
+| 不存在的模型名 | 退出 1，stderr 带 `status=ERROR` 与 `invalid model selection` |
+| 需要 `command` 权限的 schema 任务 | 退出 3，提示 headless 无法弹窗授权 |
+| `-t 1` | 退出 124，提示 print 超时 |
+| 环境里找不到 agy | 退出 2，输出安装与 `AGY_BIN` 排查提示 |
 
-本机帮助将 `--dangerously-skip-permissions` 描述为自动批准全部工具请求；`--sandbox` 描述为启用终端限制。不能据此宣称网络或文件系统全隔离。
+Windows 侧未在本机执行过：`scripts/ask-agy.ps1` 只做了静态审阅，没有在真实 Windows 上跑过。首次在 Windows 使用时应按下面清单验一次，发现问题按实际情况修，不要先把结论当已核实：
 
-### 已修复的旧包装器问题
+1. `agy --version` 与 `agy models` 能直接在同一个 PowerShell 里执行。
+2. `& scripts\ask-agy.ps1 -Model gemini-3.8-flash-low "只回答两个字：收到"` 返回中文不乱码、退出 0。
+3. 管道输入 + 中文：`"只回答两个字：收到" | & scripts\ask-agy.ps1 -Model gemini-3.8-flash-low`（重点看编码）。
+4. `-Schema .\schema.json` 传文件路径可用；含空格路径也要试一次（验证参数转义）。
+5. `-Timeout 5` 能触发硬看门狗并返回 124。
+6. 若 `agy` 在 PATH 上是 `agy.cmd` 而非 `.exe`，确认脚本包 `cmd.exe /c` 后仍能拿到 stdout 与退出码。
 
-旧版 `ask-agy.sh` 在解析时读取了进程 rc 与 hard_timeout，但有效 SUCCESS 信封分支没有优先检查它们；软超时只在空正文分支识别。模拟测试可复现：进程失败、超时部分结果或 raw 空正文被返回为成功。
+Windows 已知风险点（脚本已按此实现，但尚未在真机确认）：PowerShell 5.1 管道默认非 UTF-8、`Start-Process -ArgumentList` 的引号拆分、`.cmd` 垫片不能直接被 CreateProcess 启动、ExecutionPolicy 拦脚本。
 
-新版共用 Python 分类器，检查顺序为：取消 → 硬超时 → 软超时 → 权限拒绝 → 进程退出码 → 信封状态 → 内容完整性。raw 与 structured_output 不另设绕过路径。
+## 可用模型
 
-新版默认 120 秒软超时 + 15 秒宽限，创建临时 cwd，开启 CLI sandbox，禁用 slash/Skill 展开，不提供 `-d`、会话续接、跳过权限或任意 CLI 参数透传。
+```
+gemini-3.8-flash-high      Gemini 3.8 Flash (High)
+gemini-3.8-flash-medium    Gemini 3.8 Flash (Medium)
+gemini-3.8-flash-low       Gemini 3.8 Flash (Low)
+claude-sonnet-4-6          Claude Sonnet 4.6 (Thinking)
+claude-opus-4-6-thinking   Claude Opus 4.6 (Thinking)
+gpt-oss-120b-medium        GPT-OSS 120B (Medium)
+```
 
-### 自动回归范围
+模型清单随 CLI 更新变化，使用前以 `agy models` 输出为准。
 
-`tests/test_ask_agy.py` 使用 Python 假 CLI，覆盖正常文本/结构化结果、失败优先级、raw 模式、软硬超时、权限拒绝、空结果、无效信封、参数错误、Schema 文件、临时 cwd、运行记录和取消后的子进程清理。Windows Ctrl+Break 与 taskkill 路径已实跑；POSIX 进程组分支仍需在 macOS/Linux 上跑同一套测试。
+## 关键命令行参数
 
-模拟信封测试只证明包装器遇到这些输入时不会误报成功，不代表真实 AGY 必然采用这些状态组合。stderr 文本识别是防御性兼容，不替代未来 CLI 的结构化错误字段。
+| 参数 | 作用 |
+| --- | --- |
+| `-p` / `--print` | 单次非交互执行并打印结果 |
+| `--output-format text\|json\|stream-json` | 输出形态，默认 text |
+| `--input-format text\|stream-json` | stream-json 需要配合 `--output-format stream-json` |
+| `--model` | 指定模型 |
+| `--effort low\|medium\|high\|xhigh\|max` | 推理强度 |
+| `--json-schema` | JSON Schema 字符串或文件路径，强制结构化输出 |
+| `--print-timeout` | 超时，`0` 表示一直等到本轮结束（默认值） |
+| `--conversation` / `--continue` | 续接指定会话 / 最近会话 |
+| `--mode accept-edits\|auto\|plan` | 执行模式 |
+| `--dangerously-skip-permissions` | 自动批准全部工具权限 |
+| `--sandbox` | 限制终端能力的沙箱 |
+| `--add-dir` | 追加工作目录（可重复） |
 
-## 2026-10-18：原作者历史实测（未在本轮重新核验）
+子命令：`agent`/`agents`、`changelog`、`install`、`mcp`、`models`、`plugin`、`remote-control`、`update`、`mic-serve`。
 
-环境：macOS，`/Users/apple/.local/bin/agy`，CLI 1.4.2。以下保留用于解释调用方式，不作为当前版本、模型清单、成本或安全性的保证。
+## 实测结果
 
-### JSON 信封
+### 输出信封（`--output-format json`）
 
 ```json
-{"conversation_id":"316c637a-...","status":"SUCCESS","response":"OK\n","duration_seconds":3.14,"num_turns":1,"usage":{"input_tokens":29956,"output_tokens":95,"thinking_tokens":94,"cache_read_tokens":0,"total_tokens":30051}}
+{"conversation_id":"316c637a-...","status":"SUCCESS","response":"OK\n","duration_seconds":3.14,"num_turns":1,
+ "usage":{"input_tokens":29956,"output_tokens":95,"thinking_tokens":94,"cache_read_tokens":0,"total_tokens":30051}}
 ```
 
-有 Schema 时会另返 `structured_output`，可能同时附有说明性正文；应优先解析结构化结果。`status=SUCCESS` 是必要条件而非唯一成功判据，还要检查进程码、超时、权限、非空输出及业务内容。
+要点：`status` 是唯一的成功判据；`response` 自带尾部换行；单次调用 input_tokens 约 30k，是可观固定开销。
 
-### stdin 行为
+### 结构化输出（`--json-schema`）
 
-| 写法 | 历史结果 |
+`response` 里可能混有人类可读的解释文本，但信封顶层会额外回填 `structured_output`（以及回显 `json_schema`），解析应以 `structured_output` 为准，不要在正文里找 JSON。
+
+实测样例返回：
+
+```json
+{"structured_output":{"words":["今天","天气","很","好"]},"num_turns":2}
+```
+
+`num_turns` 在带 schema 时可能大于 1，属于正常现象。
+
+### stdin 传提示词
+
+| 写法 | 行为 |
 | --- | --- |
-| `echo "x" \| agy` | 读取 stdin |
-| `echo "x" \| agy -p` | 打印 usage，exit 0，未执行 |
-| `echo "x" \| agy -p -` | 将 `-` 当提示词，不读 stdin |
-| `echo "x" \| agy --output-format json` | 读取 stdin 并输出 JSON |
+| `echo "x" \| agy` | 正常读取 stdin 作为提示词并输出结果 |
+| `echo "x" \| agy -p` | 打印 usage，退出 0，不执行 |
+| `echo "x" \| agy -p -` | 把 `-` 当提示词，返回一句通用寒暄，**不读 stdin** |
+| `echo "x" \| agy --output-format json` | 正常，且返回 JSON 信封 |
 
-据此新版继续采用“无 -p + stdin”，长提示词不放 argv。
+结论：无 `-p` 且 stdin 非 tty 时才读 stdin。包装脚本据此统一走 stdin，规避 argv 长度与引号问题。
 
-### 权限与超时
+### 工具权限（headless）
 
-headless 工具请求被拒时，曾观察到 exit 0 并返回如下说明，而没有实际创建文件：
+任务需要写文件但未授权时：
 
-```text
-no output produced — a tool required the "write_file" permission that headless mode cannot prompt for, so it was auto-denied
-```
+- 退出码 **0**
+- 正文只有一句：`jetski: no output produced — a tool required the "write_file" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json ... Alternatively, re-run with --dangerously-skip-permissions`
+- 文件实际未被创建
 
-历史记录中开启跳过权限后可写文件；新版有意不支持这一做法。`--mode plan` 也不能被当作工具权限隔离。
+加 `--dangerously-skip-permissions` 后同一任务正常写入。注意 `--mode plan` 不能绕过这一点：计划模式仍可能因 `command` 权限被拒并返回同样的空结果提示。
 
-`--print-timeout` 曾返回部分内容，附 `print timeout after Ns with turn in progress; returning partial output`，且 exit 0。软超时还可能额外花数秒收尾，需外层硬超时兜底。
+所以「退出码 0」不代表成功，必须以正文与 `status` 判断。
 
-### 模型、用量和并发
+### 错误与退出码
 
-原记录包含数个 Gemini/Claude/GPT-OSS 模型，单次简单任务约 30k input token，单条约 3–4 秒。模型 ID、用量与耗时都是当时样本；使用时重新查询 `agy models`，不能把这些观测当长期固定开销或限流保证。
+| 情况 | 退出码 | 输出 |
+| --- | --- | --- |
+| 模型名不存在 | 1 | `error: invalid model selection (...)`，后附可用模型列表 |
+| 正常完成 | 0 | 结果 |
+| headless 权限被拒 | 0 | 上述空结果提示（危险） |
+| `--print-timeout` 到点 | 0 | 部分输出 + `[agy] print timeout after Ns with turn in progress; returning partial output` |
 
-三次并发历史样本总耗时约 10.6 秒，没有报错；不能据此推断安全并发上限。
+### 并发与耗时
 
-### 其他接口
+- 单次简单问答：约 3–4 秒。
+- 3 个并发同时跑：总墙钟 10.6 秒，单条 3.3 / 3.8 / 4.0 秒，未报错。
+- `--print-timeout 5s` 的调用实际在约 11 秒后返回（进程收尾有额外开销），说明超时是软约束，需要外层看门狗兜底。
 
-历史实测 `--conversation <id>` 可以续接上下文；新版文本执行器不开放此接口，避免隐式继承项目与权限状态。
+### 会话续接
 
-历史 `stream-json` 事件为 `init`、`step_update`、`result`。新版使用最终 JSON 信封；若要 Gamma 原生流式状态与授权交互，应另做宿主适配层，而不是把未验证的事件直接当完成状态。
+`-p "记住 42" --output-format json` 拿到 `conversation_id` 后，用 `--conversation <id>` 追问「我刚让你记住什么」，返回 `42`。续接可用，且省掉重复背景。
+
+### stream-json
+
+每行一个事件：`init`（含 cwd、tools、permission_mode）、`step_update`（含 `text_delta`）、`result`（最终信封）。需要流式展示或调试时用它，日常批处理用 `json` 就够。
