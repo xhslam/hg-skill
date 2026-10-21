@@ -1,7 +1,7 @@
 ---
 name: hg-agy-subagent
 description: Antigravity CLI（agy）通用 Agent 调用与协作 SOP。用户主动调用本 Skill 或要求交给 agy 时，由 agy 承担任务的主要执行，Gamma 负责上下文组织、协调与验收；其他时候，可按任务需要将 agy 用作子 Agent，处理研究、规划、代码实现、调试、审查、写作、批量处理或多模型协作。用户提到 agy、Antigravity，或希望使用其 Gemini、Claude、ChatGPT 模型时使用；用途不局限于跑批、节省 token 或交叉验证。
-version: "1.0.5"
+version: "1.0.6"
 ---
 
 # agy 通用 Agent 调用与协作 SOP
@@ -69,21 +69,30 @@ Skill 会被下载到 macOS 和 Windows 上使用，因此不要假设 agy 装�
 
 ### agy 的权限模型（决定任务能不能跑）
 
-agy 在 headless 下无法弹窗授权，工具请求按“自己的白名单”直接放行或自动拒绝。默认情况（1.4.4 实测）：
+agy 在 headless 下无法弹窗授权，工具请求按本地白名单直接放行或自动拒绝。2026-10-22 在 agy 1.4.4 实测的默认行为：
 
-| 类别 | 默认 | 例子 |
+| 类别 | 默认 | 说明 |
 | --- | --- | --- |
-| 读取类工具 | 允许 | `view_file`、`read_file`、`list_dir`、`grep_search` |
-| 只读命令 | 允许（固定名单） | `ls`、`pwd`、`cat`、`jq`、`ps`、`git log/diff/status` |
+| 读取类工具 | 允许 | `view_file`、`read_file`、`list_dir`、`grep_search` 等 |
+| 命令 | **拒绝** | 包括 `ls`、`whoami`；必须逐条写进 allow |
 | 写文件 | **拒绝** | `write_file` 需要 allow 规则 |
-| 其他命令 | **拒绝** | `whoami`、`npm test`、`git commit` 都不在白名单内 |
 
-`--sandbox` 与 `--mode auto` **不会**提升权限（实测仍被拒）。要真正改代码或跑命令，只有两条路：
+`--sandbox` 与 `--mode auto` **不会**提升权限（实测仍被拒）。实际可用的规则写法（均已实测）：
 
-1. **配置 allow 规则**（推荐，一次配置长期生效）：在 `~/.gemini/antigravity-cli/settings.json`（Windows 为 `%USERPROFILE%\.gemini\antigravity-cli\settings.json`）的 `permissions.allow` 里加 `工具(目标)` 形式条目，例如 agy 自己建议的 `write_file(<target>)`、`command(<target>)`。
-2. **本次全放行**：脚本的 `--allow-tools` / `-AllowTools`，相当于 `--dangerously-skip-permissions`。使用前必须向用户说明这会自动批准**全部**工具，取得明确确认；不得因调用失败而自动追加。
+| 规则 | 效果 |
+| --- | --- |
+| `command(bun)` | 放行名为 `bun` 的命令；**逐条列名**，不支持参数或通配 |
+| `write_file(/绝对路径/文件)` | 只放行这一个文件 |
+| `write_file(*)` | 放行任意路径的写操作（全局） |
 
-包装脚本在权限被拒时（退出码 `3`）会打印被拒工具名、agy 建议的规则、配置文件路径和这三条出路，不要只把“权限被拒”转述给用户。
+实测**不支持**：`write_file(/目录/**)`、`write_file(/目录/*)`、仅把目录加进 `trustedWorkspaces`。也就是说写权限只能“单个文件”或“全局”二选一，没有目录级中间态。规则按 **真实路径** 匹配（macOS 上 `/tmp` 实际是 `/private/tmp`），且管道里每个命令都要单独放行（`ls | head` 需要同时有 `command(ls)` 和 `command(head)`）。
+
+配置文件：`~/.gemini/antigravity-cli/settings.json`（Windows 为 `%USERPROFILE%\.gemini\antigravity-cli\settings.json`）的 `permissions.allow`。两条路可选：
+
+1. **配 allow 规则**（一次配置长期生效）：命令逐条加；写权限在“单个文件”与 `write_file(*)` 之间选。
+2. **本次全放行**：脚本的 `--allow-tools` / `-AllowTools`，相当于 `--dangerously-skip-permissions`。使用前必须说明这会自动批准**全部**工具并取得明确确认，不得因调用失败而自动追加。
+
+注意 `command(npm)`、`command(bun)`、`command(git)` 这类开发命令本身就意味着可执行项目脚本或推送提交，不是“只读授权”。包装脚本在权限被拒时（退出码 `3`）会打印被拒工具、agy 建议的规则、配置路径和三条出路，不要只转述“权限被拒”。
 
 ### 任务契约默认注入
 

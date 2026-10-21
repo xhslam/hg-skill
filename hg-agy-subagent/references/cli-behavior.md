@@ -43,15 +43,35 @@ Windows 已知风险点（脚本已按此实现，但尚未在真机确认）：
 
 ## 权限行为（2026-10-22 实测，agy 1.4.4）
 
-headless 下 agy 不会弹窗，工具请求按本地 settings 直接判定：
+headless 下 agy 不会弹窗，工具请求按本地 settings 直接判定。配置文件：`~/.gemini/antigravity-cli/settings.json`（从二进制字符串 `.gemini/antigravity-cli/settings.json` 确认）。
 
-- 配置文件：`~/.gemini/antigravity-cli/settings.json`（从二进制字符串 `.gemini/antigravity-cli/settings.json` 确认）。
-- 现有 `permissions.allow` 示例：`command(echo)`、`command(which)`、`command(file)`、`command(cat)`。
-- 内置安全白名单（二进制中的 `agy_tool_safety` 监控配置）包含读类工具（`view_file`/`read_file`/`list_dir`/`grep_search` 等）和只读命令（`ls`、`pwd`、`echo`、`cat`、`jq`、`ps`、`git log/diff/status` 等）。
-- 实测被拒：`write_file`（写文件）、`command`（如 `whoami`）。
-- 实测 `--sandbox` 与 `--mode auto` 均不提升权限，仍返回同样拒绝文本。
-- `--dangerously-skip-permissions` 实测可使 `write_file` 成功写入。
-- 拒绝时 CLI 退出码仍为 0，仅靠正文为空与 stderr 文本发现；包装脚本据此返回 `3`。
+实测默认放行与拒绝：
+
+| 项 | 结果 |
+| --- | --- |
+| 读类工具（`read_file`、`list_dir` 等） | 放行 |
+| `command(ls)`、`command(whoami)` 无规则时 | 拒绝 |
+| `write_file` 无规则时 | 拒绝 |
+| `--sandbox` | 不变，仍拒绝 |
+| `--mode auto` | 不变，仍拒绝 |
+
+规则语法（逐项实测）：
+
+| 规则 | 结果 |
+| --- | --- |
+| `command(whoami)` | 生效，按命令名匹配 |
+| `command(git)` | 生效，但等于放行任意 git 子命令（含 push） |
+| `ls \| head -3` | 需要同时有 `command(ls)` 与 `command(head)` |
+| `write_file(/tmp/A.txt)` | 未生效 |
+| `write_file(/private/tmp/A.txt)` | 生效，说明按真实路径匹配（`/tmp` 是指向 `/private/tmp` 的符号链接） |
+| `write_file(/目录/**)`、`write_file(/目录/*)` | 均未生效 |
+| `trustedWorkspaces` 加目录 | 不授予写权限 |
+| `write_file(*)` | 生效，全局可写 |
+| `--dangerously-skip-permissions` | 生效，`write_file` 成功 |
+
+结论：命令规则可以按名字做到最小授权；**写权限只有“单个精确文件”或“全局”两种，没有目录级中间态**。拒绝时 CLI 退出码仍为 0，只能靠正文为空与 stderr 文本发现；包装脚本据此返回 `3`。
+
+二进制里的 `agy_tool_safety` 监控配置列了一批只读命令（`ls`、`cat`、`jq`、`ps`、`git log/diff/status` 等），但那是安全监控的日志分类表，**不是**权限放行表；实测 `ls` 无规则时仍被拒。
 
 ## 可用模型
 
